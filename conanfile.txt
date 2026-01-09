@@ -1,0 +1,13 @@
+[requires]
+spdlog/1.14.1
+drogon/1.9.11
+nlohmann_json/3.11.3
+yaml-cpp/0.8.0
+redis-plus-plus/1.3.12
+protobuf/3.21.12
+libpqxx/7.10.5
+boost/1.83.0
+
+[generators]
+CMakeDeps
+CMakeToolchain
