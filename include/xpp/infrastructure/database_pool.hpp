@@ -8,6 +8,7 @@
 #include <stdexcept>
 #include <vector>
 #include <cstdint>
+#include <fstream>
 #include <xpp/core/logger.hpp>
 
 namespace xpp::infrastructure {
@@ -52,8 +53,11 @@ public:
             sqlite3_close(db_);
             db_ = nullptr;
         }
-        
-        int rc = sqlite3_open(config.database.c_str(), &db_);
+
+        // Use database_file if provided, otherwise fall back to database for backward compatibility
+        std::string db_path = !config.database_file.empty() ? config.database_file : config.database;
+
+        int rc = sqlite3_open(db_path.c_str(), &db_);
         if (rc != SQLITE_OK) {
             std::string msg = db_ ? sqlite3_errmsg(db_) : "unknown";
             throw std::runtime_error(fmt::format("Failed to open database: {}", msg));
@@ -63,7 +67,7 @@ public:
         execute_sync("PRAGMA foreign_keys = ON");
         sqlite3_busy_timeout(db_, 5000);
 
-        xpp::log_info("SQLite3 database initialized: {}", config.database);
+        xpp::log_info("SQLite3 database initialized: {}", db_path);
     }
 
     QueryResult execute_sync(const std::string& sql) {
@@ -105,6 +109,28 @@ public:
     QueryResult execute_sync(const std::string& sql, Args&&... args) {
         std::string final_sql = fmt::vformat(sql, fmt::make_format_args(args...));
         return execute_sync(final_sql);
+    }
+
+    void execute_sql_file(const std::string& file_path) {
+        if (!db_) throw std::runtime_error("Database not initialized");
+
+        std::ifstream file(file_path);
+        if (!file.is_open()) {
+            throw std::runtime_error(fmt::format("Failed to open SQL file: {}", file_path));
+        }
+
+        std::string sql_content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+        file.close();
+
+        char* err_msg = nullptr;
+        int rc = sqlite3_exec(db_, sql_content.c_str(), nullptr, nullptr, &err_msg);
+        if (rc != SQLITE_OK) {
+            std::string error = err_msg ? err_msg : "unknown error";
+            sqlite3_free(err_msg);
+            throw std::runtime_error(fmt::format("Failed to execute SQL file: {}", error));
+        }
+
+        xpp::log_info("Executed SQL file: {}", file_path);
     }
 
     bool is_connected() const { return db_ != nullptr; }

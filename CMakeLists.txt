@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.15)
+cmake_minimum_required(VERSION 3.28)
 project(xpp CXX)
 
 
@@ -49,6 +49,3 @@ if(BUILD_TESTS)
     add_subdirectory(tests)
 endif()
 
-
-# print spdlog include dirs
-message("spdlog include dirs: ${spdlog_INCLUDE_DIRS}")

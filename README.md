@@ -7,8 +7,8 @@
 - **语言**: C++20
 - **构建系统**: CMake + Conan
 - **HTTP框架**: Drogon
-- **数据库**: PostgreSQL (libpq)
-- **缓存**: Redis (redis-plus-plus)
+- **数据库**: SQLite3 (嵌入式，无需外部服务器)
+- **缓存**: MemoryCache (内存缓存，无需Redis)
 - **序列化**: Protobuf, nlohmann/json
 - **配置**: YAML-cpp
 - **日志**: spdlog
@@ -23,8 +23,8 @@
 
 ### 2. 基础服务
 - ✅ **网络层**: 基于Drogon的HTTP/WebSocket服务器封装
-- ✅ **数据库连接池**: PostgreSQL连接池，支持事务
-- ✅ **Redis客户端**: Redis操作封装，支持常用数据结构
+- ✅ **数据库连接池**: SQLite3连接池，支持事务
+- ✅ **内存缓存**: 线程安全的内存缓存，支持TTL
 
 ### 3. 业务模块
 - ✅ **用户认证**: JWT认证、注册、登录、会话管理
@@ -64,8 +64,7 @@ xpp/
 - C++20 编译器 (GCC 10+, Clang 11+, MSVC 19.29+)
 - CMake 3.15+
 - Conan 2.0+
-- PostgreSQL 12+
-- Redis 6+
+- 无需外部数据库服务器（使用SQLite3）
 
 ### 安装依赖
 
@@ -84,10 +83,14 @@ cmake --build . --config Release
 
 ### 初始化数据库
 
+数据库schema会在服务器启动时自动从 `config/init_db.sql` 初始化：
+
 ```bash
-# 创建数据库并初始化表结构
-psql -U postgres -f config/init_db.sql
+# 直接运行服务器即可，无需手动初始化数据库
+./build/Release/xpp.exe
 ```
+
+默认会创建 `xpp.db` SQLite数据库文件。
 
 ### 配置
 
@@ -96,28 +99,24 @@ psql -U postgres -f config/init_db.sql
 ```yaml
 server:
   host: "0.0.0.0"
-  port: 8080
+  port: 50051
   threads: 4
 
 database:
-  host: "localhost"
-  port: 5432
-  database: "xpp_db"
-  username: "postgres"
-  password: "your_password"
+  file: "xpp.db"
+  auto_create: true
 
-redis:
-  host: "localhost"
-  port: 6379
+logging:
+  level: "info"
 ```
 
 ### 运行
 
 ```bash
-./build/xpp
+./build/Release/xpp.exe
 ```
 
-服务器将在 `http://localhost:8080` 启动
+服务器将在 `http://localhost:50051` 启动
 
 ## API 文档
 

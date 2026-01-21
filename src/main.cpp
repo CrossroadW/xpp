@@ -56,6 +56,16 @@ void initialize_services() {
 
     try {
         infrastructure::DatabasePool::instance().initialize(db_config);
+
+        // Initialize schema from SQL file if it exists
+        if (std::filesystem::exists("config/init_db.sql")) {
+            try {
+                infrastructure::DatabasePool::instance().execute_sql_file("config/init_db.sql");
+                xpp::log_info("Database schema initialized");
+            } catch (const std::exception& e) {
+                xpp::log_warn("Schema initialization skipped (may already exist): {}", e.what());
+            }
+        }
     } catch (const std::exception& e) {
         xpp::log_error("Failed to initialize database: {}", e.what());
         throw;

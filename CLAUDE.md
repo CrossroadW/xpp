@@ -113,6 +113,7 @@ XPP uses three key architectural patterns:
 - Access columns by index: `result[row_index][column_index]`
 - **SQL escaping**: Manual escaping required (see auth_service.hpp for examples)
 - **Transactions**: Use `begin_transaction()` API
+- **Schema initialization**: Automatically executed from `config/init_db.sql` on startup
 
 ### Database Usage Patterns
 
@@ -139,7 +140,17 @@ auto result = db.execute_sync(
 
 // Get last insert ID
 int64_t user_id = db.last_insert_id();
+
+// Execute SQL file (for schema initialization)
+db.execute_sql_file("config/init_db.sql");
 ```
+
+### Schema Management
+- Schema defined in `config/init_db.sql` (SQLite3 syntax)
+- Automatically executed on server startup if file exists
+- Uses `CREATE TABLE IF NOT EXISTS` for idempotent initialization
+- Timestamps stored as INTEGER (Unix epoch seconds)
+- Boolean values stored as INTEGER (0/1)
 
 ## Logging System
 

@@ -77,3 +77,10 @@ add_test(NAME MemoryCacheTests COMMAND test_memory_cache)
 add_test(NAME DatabasePoolTests COMMAND test_database_pool)
 add_test(NAME AuthServiceTests COMMAND test_auth_service)
 add_test(NAME ApiTests COMMAND api_tests)
+
+
+# copy config dir to build directory
+add_custom_command(TARGET api_tests POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different 
+    ${CMAKE_SOURCE_DIR}/config $<TARGET_FILE_DIR:api_tests>/config
+)

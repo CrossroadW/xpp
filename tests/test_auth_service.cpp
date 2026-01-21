@@ -37,9 +37,11 @@ protected:
     }
 
     void TearDown() override {
+        // Close the database connection before deleting the file
         auto& pool = xpp::infrastructure::DatabasePool::instance();
-        pool.execute_sync("DROP TABLE IF EXISTS users");
-        
+        pool.close();
+
+        // Now we can safely delete the file
         if (std::filesystem::exists(test_db_path)) {
             std::filesystem::remove(test_db_path);
         }
