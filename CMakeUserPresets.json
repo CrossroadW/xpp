@@ -4,6 +4,27 @@
         "conan": {}
     },
     "include": [
-        "build/CMakePresets.json"
+        "build/release/generators/CMakePresets.json",
+        "build/debug/generators/CMakePresets.json"
+    ],
+    "configurePresets": [
+        {
+            "name": "conan-release-tests",
+            "displayName": "'conan-release' with tests",
+            "description": "'conan-release' configure with BUILD_TESTS enabled",
+            "inherits": "conan-release",
+            "cacheVariables": {
+                "BUILD_TESTS": "ON"
+            }
+        },
+        {
+            "name": "conan-debug-tests",
+            "displayName": "'conan-debug' with tests",
+            "description": "'conan-debug' configure with BUILD_TESTS enabled",
+            "inherits": "conan-debug",
+            "cacheVariables": {
+                "BUILD_TESTS": "ON"
+            }
+        }
     ]
 }

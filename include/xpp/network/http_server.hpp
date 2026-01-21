@@ -5,6 +5,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <atomic>
 
 namespace xpp::network {
 
@@ -65,19 +66,59 @@ public:
      * @brief Register HTTP routes
      */
     HttpServer& get(const std::string& path, Handler handler) {
-        return register_route(path, {drogon::Get}, handler);
+        std::vector<drogon::internal::HttpConstraint> constraints;
+        constraints.push_back(drogon::Get);
+        app().registerHandler(
+            path,
+            [handler](const HttpRequestPtr& req,
+                     std::function<void(const HttpResponsePtr&)>&& callback) {
+                handler(req, std::move(callback));
+            },
+            constraints
+        );
+        return *this;
     }
 
     HttpServer& post(const std::string& path, Handler handler) {
-        return register_route(path, {drogon::Post}, handler);
+        std::vector<drogon::internal::HttpConstraint> constraints;
+        constraints.push_back(drogon::Post);
+        app().registerHandler(
+            path,
+            [handler](const HttpRequestPtr& req,
+                     std::function<void(const HttpResponsePtr&)>&& callback) {
+                handler(req, std::move(callback));
+            },
+            constraints
+        );
+        return *this;
     }
 
     HttpServer& put(const std::string& path, Handler handler) {
-        return register_route(path, {drogon::Put}, handler);
+        std::vector<drogon::internal::HttpConstraint> constraints;
+        constraints.push_back(drogon::Put);
+        app().registerHandler(
+            path,
+            [handler](const HttpRequestPtr& req,
+                     std::function<void(const HttpResponsePtr&)>&& callback) {
+                handler(req, std::move(callback));
+            },
+            constraints
+        );
+        return *this;
     }
 
     HttpServer& del(const std::string& path, Handler handler) {
-        return register_route(path, {drogon::Delete}, handler);
+        std::vector<drogon::internal::HttpConstraint> constraints;
+        constraints.push_back(drogon::Delete);
+        app().registerHandler(
+            path,
+            [handler](const HttpRequestPtr& req,
+                     std::function<void(const HttpResponsePtr&)>&& callback) {
+                handler(req, std::move(callback));
+            },
+            constraints
+        );
+        return *this;
     }
 
     HttpServer& route(
@@ -100,6 +141,10 @@ public:
      * @brief Start server (blocking)
      */
     void run() {
+        // Set log level for Drogon
+        app().setLogLevel(trantor::Logger::kInfo);
+
+        // Run the event loop (blocking)
         app().run();
     }
 
@@ -132,12 +177,13 @@ private:
         const std::vector<HttpMethod>& methods,
         Handler handler
     ) {
-        // Wrap handler with middleware chain
-        auto wrapped_handler = [this, handler](
+        // Temporarily disable middleware chain to debug
+        // Just register the handler directly
+        auto simple_handler = [handler](
             const HttpRequestPtr& req,
             std::function<void(const HttpResponsePtr&)>&& callback
         ) {
-            execute_middleware_chain(req, std::move(callback), handler, 0);
+            handler(req, std::move(callback));
         };
 
         // Convert HttpMethod to HttpConstraint
@@ -146,7 +192,7 @@ private:
             constraints.push_back(method);
         }
 
-        app().registerHandler(path, wrapped_handler, constraints);
+        app().registerHandler(path, simple_handler, constraints);
         return *this;
     }
 
@@ -164,12 +210,32 @@ private:
 
         // Execute current middleware
         auto& middleware = middlewares_[index];
+
+        // Use shared_ptr to allow both callback and next to access it
+        // Also use a flag to ensure callback is only called once
+        struct CallbackState {
+            std::function<void(const HttpResponsePtr&)> callback;
+            std::atomic<bool> called{false};
+        };
+        auto state = std::make_shared<CallbackState>();
+        state->callback = std::move(callback);
+
         middleware(
             req,
-            std::move(callback),
-            [this, req, callback, final_handler, index]() mutable {
-                // Call next middleware
-                execute_middleware_chain(req, std::move(callback), final_handler, index + 1);
+            [state](const HttpResponsePtr& resp) {
+                // Only call callback once
+                bool expected = false;
+                if (state->called.compare_exchange_strong(expected, true)) {
+                    state->callback(resp);
+                }
+            },
+            [this, req, state, final_handler, index]() {
+                // Only proceed if callback hasn't been called
+                bool expected = false;
+                if (state->called.compare_exchange_strong(expected, true)) {
+                    // Move callback out of state for next chain
+                    execute_middleware_chain(req, std::move(state->callback), final_handler, index + 1);
+                }
             }
         );
     }

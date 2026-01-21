@@ -1,9 +1,9 @@
 #include <iostream>
-#include "xpp/core/logger.hpp"
+//#include "xpp/core/logger.hpp"
 #include "xpp/core/config_manager.hpp"
 #include "xpp/core/ioc_container.hpp"
 #include "xpp/core/event_bus.hpp"
-
+#include "xpp/core/logger.hpp"
 using namespace xpp;
 
 int main() {

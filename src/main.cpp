@@ -4,9 +4,9 @@
 #include "xpp/core/event_bus.hpp"
 #include "xpp/network/http_server.hpp"
 #include "xpp/infrastructure/database_pool.hpp"
-#include "xpp/infrastructure/redis_client.hpp"
-#include "modules/user/auth_service.hpp"
-#include "modules/user/auth_controller.hpp"
+#include "xpp/infrastructure/memory_cache.hpp"
+#include "xpp/modules/user/auth_service.hpp"
+#include "xpp/modules/user/auth_controller.hpp"
 #include <iostream>
 #include <csignal>
 
@@ -50,12 +50,8 @@ void initialize_services() {
 
     // Initialize database
     infrastructure::DatabasePool::Config db_config{
-        .host = config.get_or<std::string>("database.host", "localhost"),
-        .port = static_cast<uint16_t>(config.get_or<int>("database.port", 5432)),
-        .database = config.get_or<std::string>("database.database", "xpp_db"),
-        .username = config.get_or<std::string>("database.username", "postgres"),
-        .password = config.get_or<std::string>("database.password", ""),
-        .connection_num = config.get_or<size_t>("database.connection_num", 10)
+        .database = config.get_or<std::string>("database.file", "xpp.db"),
+        .auto_create = config.get_or<bool>("database.auto_create", true)
     };
 
     try {
@@ -65,24 +61,8 @@ void initialize_services() {
         throw;
     }
 
-    // Initialize Redis
-    infrastructure::RedisClient::Config redis_config{
-        .host = config.get_or<std::string>("redis.host", "localhost"),
-        .port = config.get_or<int>("redis.port", 6379),
-        .password = config.get_or<std::string>("redis.password", ""),
-        .database = config.get_or<int>("redis.database", 0),
-        .pool_size = config.get_or<size_t>("redis.pool_size", 10)
-    };
-
-    try {
-        infrastructure::RedisClient::instance().initialize(redis_config);
-        if (!infrastructure::RedisClient::instance().ping()) {
-            xpp::log_warn("Redis connection test failed");
-        }
-    } catch (const std::exception& e) {
-        xpp::log_error("Failed to initialize Redis: {}", e.what());
-        throw;
-    }
+    // Initialize memory cache (no Redis required)
+    infrastructure::MemoryCache::instance().initialize();
 
     xpp::log_info("All services initialized successfully");
 }
@@ -157,7 +137,7 @@ int main() {
 
         server.set_listen_address(
             config.get_or<std::string>("server.host", "0.0.0.0"),
-            static_cast<uint16_t>(config.get_or<int>("server.port", 8080))
+            static_cast<uint16_t>(config.get_or<int>("server.port", 50051))
         );
 
         server.set_threads(config.get_or<size_t>("server.threads", 4));
@@ -177,14 +157,14 @@ int main() {
         // Start server
         xpp::log_info("Server starting on {}:{}",
                  config.get_or<std::string>("server.host", "0.0.0.0"),
-                 config.get_or<int>("server.port", 8080));
+                 config.get_or<int>("server.port", 50051));
 
         server.run();
 
         xpp::log_info("Server stopped");
 
     } catch (const std::exception& e) {
-        std::cerr << "Fatal error: " << e.what() << std::endl;
+        xpp::log_error("Fatal error: {}", e.what());
         return 1;
     }
 

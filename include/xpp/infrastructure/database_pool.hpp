@@ -1,32 +1,45 @@
 #pragma once
 
-#include <drogon/orm/DbClient.h>
-#include <drogon/orm/Exception.h>
+#include <sqlite3.h>
 #include <fmt/format.h>
 #include <memory>
 #include <string>
 #include <optional>
 #include <stdexcept>
+#include <vector>
+#include <cstdint>
 #include <xpp/core/logger.hpp>
+
 namespace xpp::infrastructure {
-
-using namespace drogon::orm;
-
+// Forward declare Transaction for begin_transaction API
+class Transaction;
 /**
  * @brief Database connection pool manager
  * Wraps Drogon's ORM for simplified database access
+/**
+ * @brief Simple wrapper for SQLite3 result
  */
+struct QueryResult {
+    std::vector<std::vector<std::string>> rows;
+    std::vector<std::string> columns;
+    bool is_success = true;
+    std::string error_message;
+
+    bool empty() const { return rows.empty(); }
+    size_t size() const { return rows.size(); }
+
+    const std::vector<std::string>& operator[](size_t index) const {
+        if (index >= rows.size()) throw std::out_of_range("Row index out of range");
+        return rows[index];
+    }
+};
+
 class DatabasePool {
 public:
     struct Config {
-        std::string host = "localhost";
-        uint16_t port = 5432;
-        std::string database = "xpp";
-        std::string username = "postgres";
-        std::string password = "";
-        size_t connection_num = 10;
-        bool auto_reconnect = true;
-        double timeout = 10.0;  // seconds
+        std::string database_file = "xpp.db"; // SQLite file path
+        std::string database = "test";
+        bool auto_create = true;
     };
 
     static DatabasePool& instance() {
@@ -34,155 +47,112 @@ public:
         return pool;
     }
 
-    /**
-     * @brief Initialize connection pool
-     */
     void initialize(const Config& config) {
-        std::string connection_string = fmt::format(
-            "host={} port={} dbname={} user={} password={}",
-            config.host, config.port, config.database,
-            config.username, config.password
-        );
-
-        client_ = drogon::orm::DbClient::newPgClient(
-            connection_string,
-            config.connection_num
-        );
-
-        if (!client_) {
-            throw std::runtime_error("Failed to create database client");
+        if (db_) {
+            sqlite3_close(db_);
+            db_ = nullptr;
+        }
+        
+        int rc = sqlite3_open(config.database.c_str(), &db_);
+        if (rc != SQLITE_OK) {
+            std::string msg = db_ ? sqlite3_errmsg(db_) : "unknown";
+            throw std::runtime_error(fmt::format("Failed to open database: {}", msg));
         }
 
-        xpp::log_info("Database pool initialized: {}:{}/{}",
-                 config.host, config.port, config.database);
+        // Enable foreign keys and set busy timeout
+        execute_sync("PRAGMA foreign_keys = ON");
+        sqlite3_busy_timeout(db_, 5000);
+
+        xpp::log_info("SQLite3 database initialized: {}", config.database);
     }
 
-    /**
-     * @brief Get database client
-     */
-    DbClientPtr client() {
-        if (!client_) {
-            throw std::runtime_error("Database not initialized");
+    QueryResult execute_sync(const std::string& sql) {
+        if (!db_) throw std::runtime_error("Database not initialized");
+
+        QueryResult result;
+        sqlite3_stmt* stmt = nullptr;
+        int rc = sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr);
+        if (rc != SQLITE_OK) {
+            result.is_success = false;
+            result.error_message = sqlite3_errmsg(db_);
+            return result;
         }
-        return client_;
-    }
 
-    /**
-     * @brief Execute raw SQL query
-     */
-    template<typename Callback>
-    void execute(const std::string& sql, Callback&& callback) {
-        client_->execSqlAsync(
-            sql,
-            [cb = std::forward<Callback>(callback)](const Result& result) mutable {
-                cb(result, std::nullopt);
-            },
-            [cb = std::forward<Callback>(callback)](const DrogonDbException& e) mutable {
-                cb(Result{}, std::optional<std::string>(e.base().what()));
+        int column_count = sqlite3_column_count(stmt);
+        for (int i = 0; i < column_count; ++i) {
+            result.columns.push_back(sqlite3_column_name(stmt, i));
+        }
+
+        while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+            std::vector<std::string> row;
+            for (int i = 0; i < column_count; ++i) {
+                const unsigned char* text = sqlite3_column_text(stmt, i);
+                row.push_back(text ? reinterpret_cast<const char*>(text) : std::string());
             }
-        );
+            result.rows.push_back(std::move(row));
+        }
+
+        if (rc != SQLITE_DONE) {
+            result.is_success = false;
+            result.error_message = sqlite3_errmsg(db_);
+        }
+
+        sqlite3_finalize(stmt);
+        return result;
     }
 
-    /**
-     * @brief Execute SQL with parameters (prepared statement)
-     */
-    template<typename Callback, typename... Args>
-    void execute(const std::string& sql, Callback&& callback, Args&&... args) {
-        client_->execSqlAsync(
-            sql,
-            [cb = std::forward<Callback>(callback)](const Result& result) mutable {
-                cb(result, std::nullopt);
-            },
-            [cb = std::forward<Callback>(callback)](const DrogonDbException& e) mutable {
-                cb(Result{}, std::optional<std::string>(e.base().what()));
-            },
-            std::forward<Args>(args)...
-        );
-    }
-
-    /**
-     * @brief Execute query synchronously (blocking)
-     */
     template<typename... Args>
-    Result execute_sync(const std::string& sql, Args&&... args) {
-        try {
-            return client_->execSqlSync(sql, std::forward<Args>(args)...);
-        } catch (const DrogonDbException& e) {
-            throw;
-        }
+    QueryResult execute_sync(const std::string& sql, Args&&... args) {
+        std::string final_sql = fmt::vformat(sql, fmt::make_format_args(args...));
+        return execute_sync(final_sql);
     }
 
-    /**
-     * @brief Begin transaction
-     */
-    template<typename Callback>
-    void transaction(Callback&& callback) {
-        auto trans = client_->newTransaction();
+    bool is_connected() const { return db_ != nullptr; }
 
-        try {
-            callback(trans);
-        } catch (const std::exception& e) {
-            trans->rollback();
-            throw;
-        }
-    }
-
-    /**
-     * @brief Check if database is connected
-     */
-    bool is_connected() const {
-        return client_ != nullptr;
-    }
-
-    /**
-     * @brief Close all connections
-     */
     void close() {
-        if (client_) {
-            client_->closeAll();
-            client_.reset();
+        if (db_) {
+            sqlite3_close(db_);
+            db_ = nullptr;
         }
+    }
+
+    sqlite3* get_handle() { return db_; }
+
+    // Transaction helpers (internal)
+    void exec_begin_transaction() { execute_sync("BEGIN TRANSACTION"); }
+    void exec_commit_transaction() { execute_sync("COMMIT"); }
+    void exec_rollback_transaction() { execute_sync("ROLLBACK"); }
+
+    // Begin a Transaction object (returns RAII transaction)
+    Transaction begin_transaction();
+
+    int64_t last_insert_id() {
+        return db_ ? sqlite3_last_insert_rowid(db_) : 0;
     }
 
 private:
     DatabasePool() = default;
-    ~DatabasePool() {
-        close();
-    }
+    ~DatabasePool() { close(); }
     DatabasePool(const DatabasePool&) = delete;
     DatabasePool& operator=(const DatabasePool&) = delete;
 
-    DbClientPtr client_;
+    sqlite3* db_ = nullptr;
 };
 
-/**
- * @brief RAII transaction guard
- */
 class Transaction {
 public:
-    explicit Transaction(DbClientPtr client)
-        : trans_(client->newTransaction()), committed_(false) {}
-
-    ~Transaction() {
-        if (!committed_) {
-            trans_->rollback();
-        }
-    }
-
-    auto operator->() { return trans_.operator->(); }
-
-    void commit() {
-        committed_ = true;
-    }
-
-    void rollback() {
-        trans_->rollback();
-        committed_ = true;
-    }
-
+    explicit Transaction(DatabasePool& pool) : pool_(pool), committed_(false) { pool_.exec_begin_transaction(); }
+    ~Transaction() { if (!committed_) pool_.exec_rollback_transaction(); }
+    void commit() { pool_.exec_commit_transaction(); committed_ = true; }
+    void rollback() { pool_.exec_rollback_transaction(); committed_ = true; }
 private:
-    std::shared_ptr<drogon::orm::Transaction> trans_;
+    DatabasePool& pool_;
     bool committed_;
 };
+
+// Return an RAII Transaction object
+inline Transaction DatabasePool::begin_transaction() {
+    return Transaction(*this);
+}
 
 } // namespace xpp::infrastructure

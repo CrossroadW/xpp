@@ -2,3 +2,6 @@
 /build/
 /out/
 /.claude/
+/.vs/
+/tmpclaude-*
+/xpp.db

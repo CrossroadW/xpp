@@ -1,12 +1,15 @@
 #pragma once
 
-#include <format>
+#include <memory>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <vector>
 #include <spdlog/sinks/rotating_file_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
 
 namespace xpp::core {
-
 /**
  * @brief Centralized logging system wrapper around spdlog
  * Supports console and file logging with rotation
@@ -40,17 +43,14 @@ public:
                   size_t max_file_size = 1024 * 1024 * 10, // 10MB
                   size_t max_files = 5) {
     try {
-      // Console sink
       auto console_sink =
           std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
       console_sink->set_level(to_spdlog_level(level));
 
-      // Rotating file sink
       auto file_sink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
           log_dir + "/xpp.log", max_file_size, max_files);
       file_sink->set_level(to_spdlog_level(level));
 
-      // Create multi-sink logger
       std::vector<spdlog::sink_ptr> sinks{console_sink, file_sink};
       logger_ =
           std::make_shared<spdlog::logger>("xpp", sinks.begin(), sinks.end());
@@ -84,11 +84,11 @@ public:
 private:
   // Helper template for formatting with any number of arguments
   template <typename... Args>
-  std::string format_message(std::string_view fmt, Args &&...args) {
+  std::string format_message(std::string_view fmt_str, Args &&...args) {
     if constexpr (sizeof...(Args) == 0) {
-      return std::string(fmt);
+      return std::string(fmt_str);
     } else {
-      return std::vformat(fmt, std::make_format_args(args...));
+      return fmt::vformat(fmt_str, fmt::make_format_args(args...));
     }
   }
 
@@ -171,38 +171,39 @@ private:
 
   std::shared_ptr<spdlog::logger> logger_;
 };
-
-} // namespace xpp::core
+}
 
 // Convenience inline functions instead of macros
 namespace xpp {
-  template <typename... Args>
-  inline void log_trace(std::string_view fmt, Args&&... args) {
-    core::Logger::instance().trace(fmt, args...);
-  }
+template <typename... Args>
+inline void log_trace(std::string_view fmt, Args &&...args) {
+  core::Logger::instance().trace(fmt, args...);
+}
 
-  template <typename... Args>
-  inline void log_debug(std::string_view fmt, Args&&... args) {
-    core::Logger::instance().debug(fmt, args...);
-  }
+template <typename... Args>
+inline void log_debug(std::string_view fmt, Args &&...args) {
+  core::Logger::instance().debug(fmt, args...);
+}
 
-  template <typename... Args>
-  inline void log_info(std::string_view fmt, Args&&... args) {
-    core::Logger::instance().info(fmt, args...);
-  }
+using Logger = core::Logger;
 
-  template <typename... Args>
-  inline void log_warn(std::string_view fmt, Args&&... args) {
-    core::Logger::instance().warn(fmt, args...);
-  }
+template <typename... Args>
+inline void log_info(std::string_view fmt, Args &&...args) {
+  core::Logger::instance().info(fmt, args...);
+}
 
-  template <typename... Args>
-  inline void log_error(std::string_view fmt, Args&&... args) {
-    core::Logger::instance().error(fmt, args...);
-  }
+template <typename... Args>
+inline void log_warn(std::string_view fmt, Args &&...args) {
+  core::Logger::instance().warn(fmt, args...);
+}
 
-  template <typename... Args>
-  inline void log_critical(std::string_view fmt, Args&&... args) {
-    core::Logger::instance().critical(fmt, args...);
-  }
+template <typename... Args>
+inline void log_error(std::string_view fmt, Args &&...args) {
+  core::Logger::instance().error(fmt, args...);
+}
+
+template <typename... Args>
+inline void log_critical(std::string_view fmt, Args &&...args) {
+  core::Logger::instance().critical(fmt, args...);
+}
 } // namespace xpp

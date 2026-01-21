@@ -33,7 +33,7 @@
 
 ```
 xpp/
-├── include/xpp/              # 公共头文件
+├── include/xpp/              # 公共头文件 (全部header-only)
 │   ├── core/                 # 核心组件
 │   │   ├── ioc_container.hpp
 │   │   ├── event_bus.hpp
@@ -43,15 +43,13 @@ xpp/
 │   │   └── http_server.hpp
 │   ├── infrastructure/       # 基础设施
 │   │   ├── database_pool.hpp
-│   │   └── redis_client.hpp
+│   │   └── memory_cache.hpp
+│   ├── modules/              # 业务模块 (全部header-only)
+│   │   └── user/             # 用户模块
 │   └── middleware/           # 中间件
-├── src/                      # 源代码
-│   ├── core/
-│   ├── network/
-│   ├── infrastructure/
-│   ├── modules/              # 业务模块
-│   │   └── user/            # 用户模块
+├── src/                      # 源代码 (仅main.cpp和测试)
 │   └── main.cpp
+├── tests/                    # 测试文件
 ├── config/                   # 配置文件
 │   ├── config.yaml
 │   └── init_db.sql
@@ -73,7 +71,8 @@ xpp/
 
 ```bash
 # 安装 Conan 依赖
-conan install . --output-folder=build --build=missing
+conan install . --output-folder=build --profile:build=conan-release.profile --profile:host=conan-release.profile --remote=conancenter
+conan install . --output-folder=build --profile:build=conan-debug.profile --profile:host=conan-debug.profile --remote=conancenter
 
 # 配置 CMake
 cd build
@@ -236,33 +235,48 @@ auto host = config.get_or<std::string>("server.host", "0.0.0.0");
 
 ### 添加新模块
 
-1. 在 `src/modules/` 下创建模块目录
-2. 实现业务逻辑和控制器
+1. 在 `include/xpp/modules/` 下创建模块目录（全部header-only）
+2. 实现业务逻辑和控制器（全部在.hpp文件中）
 3. 在 `main.cpp` 中注册模块和路由
 
 示例：
 
 ```cpp
-// src/modules/message/message_service.hpp
+// include/xpp/modules/message/message_service.hpp
+#pragma once
+namespace xpp::modules::message {
 class MessageService {
 public:
-    void send_message(int64_t sender_id, int64_t receiver_id, const std::string& content);
+    void send_message(int64_t sender_id, int64_t receiver_id, const std::string& content) {
+        // 实现逻辑
+    }
 };
+}
 
-// src/modules/message/message_controller.hpp
+// include/xpp/modules/message/message_controller.hpp
+#pragma once
+#include "xpp/network/http_server.hpp"
+namespace xpp::modules::message {
 class MessageController {
 public:
-    void register_routes(HttpServer& server) {
+    void register_routes(network::HttpServer& server) {
         server.post("/api/messages/send", [this](auto req, auto callback) {
             // 处理消息发送
         });
     }
 };
+}
 
 // 在 main.cpp 中注册
-container.register_service<MessageService>();
-auto msg_controller = std::make_shared<MessageController>(
-    container.resolve<MessageService>()
+#include "xpp/modules/message/message_service.hpp"
+#include "xpp/modules/message/message_controller.hpp"
+
+container.register_service<modules::message::MessageService>(
+    []() { return std::make_shared<modules::message::MessageService>(); },
+    core::IoCContainer::Lifetime::Singleton
+);
+auto msg_controller = std::make_shared<modules::message::MessageController>(
+    container.resolve<modules::message::MessageService>()
 );
 msg_controller->register_routes(server);
 ```
@@ -314,11 +328,46 @@ msg_controller->register_routes(server);
 
 ## 测试
 
+### 快速开始
+
 ```bash
-# 编译测试
-cmake -DBUILD_TESTS=ON ..
-make
-ctest
+# 构建所有测试
+cmake --build --preset conan-release --target test_logger test_memory_cache test_database_pool test_auth_service
+
+# 运行所有测试
+ctest --preset conan-release
+```
+
+### 测试套件
+
+XPP项目包括 **35个单元测试**，覆盖核心功能：
+
+| 测试套件 | 测试数 | 覆盖范围 |
+|---------|--------|---------|
+| Logger Tests | 6 | 日志记录、格式化、多种数据类型 |
+| Memory Cache Tests | 11 | 缓存操作、TTL过期、线程安全 |
+| Database Pool Tests | 9 | CRUD操作、事务、SQL转义 |
+| Auth Service Tests | 9 | 注册、登录、JWT验证、会话管理 |
+
+### 详细文档
+
+- **[TESTING.md](TESTING.md)** - 完整的测试指南和使用示例
+- **[TEST_INFRASTRUCTURE.md](TEST_INFRASTRUCTURE.md)** - 测试基础设施详情
+
+### 运行特定测试
+
+```bash
+# 运行特定测试套件
+./build/test_logger
+./build/test_memory_cache
+./build/test_database_pool
+./build/test_auth_service
+
+# 运行特定测试
+./build/test_auth_service --gtest_filter="AuthServiceTest.LoginValidCredentials"
+
+# 显示详细输出
+./build/test_logger --gtest_verbose
 ```
 
 ## 许可证
