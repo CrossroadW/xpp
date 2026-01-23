@@ -7,6 +7,8 @@
 #include "xpp/infrastructure/memory_cache.hpp"
 #include "xpp/modules/user/auth_service.hpp"
 #include "xpp/modules/user/auth_controller.hpp"
+#include "xpp/modules/message/message_service.hpp"
+#include "xpp/modules/message/message_controller.hpp"
 #include <iostream>
 #include <csignal>
 
@@ -89,6 +91,11 @@ void register_modules() {
         core::IoCContainer::Lifetime::Singleton
     );
 
+    container.register_service<modules::message::MessageService>(
+        []() { return std::make_shared<modules::message::MessageService>(); },
+        core::IoCContainer::Lifetime::Singleton
+    );
+
     xpp::log_info("Modules registered");
 }
 
@@ -98,10 +105,15 @@ void register_modules() {
 void setup_routes(network::HttpServer& server) {
     auto& container = core::IoCContainer::instance();
     auto auth_service = container.resolve<modules::user::AuthService>();
+    auto message_service = container.resolve<modules::message::MessageService>();
 
     // Auth routes
     auto auth_controller = std::make_shared<modules::user::AuthController>(auth_service);
     auth_controller->register_routes(server);
+
+    // Message routes
+    auto message_controller = std::make_shared<modules::message::MessageController>(message_service, auth_service);
+    message_controller->register_routes(server);
 
     // Health check endpoint
     server.get("/health", [](auto req, auto callback) {

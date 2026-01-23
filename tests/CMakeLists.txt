@@ -55,6 +55,20 @@ target_link_libraries(test_auth_service
     Drogon::Drogon
 )
 
+# Message service tests
+add_executable(test_message_service test_message_service.cpp)
+target_link_libraries(test_message_service
+    GTest::gtest
+    GTest::gtest_main
+    xpp_core
+    SQLite::SQLite3
+    fmt::fmt
+    nlohmann_json::nlohmann_json
+    OpenSSL::Crypto
+    OpenSSL::SSL
+    Drogon::Drogon
+)
+
 # API integration tests
 add_executable(api_tests api_tests.cpp)
 target_link_libraries(api_tests
@@ -76,6 +90,7 @@ add_test(NAME LoggerTests COMMAND test_logger)
 add_test(NAME MemoryCacheTests COMMAND test_memory_cache)
 add_test(NAME DatabasePoolTests COMMAND test_database_pool)
 add_test(NAME AuthServiceTests COMMAND test_auth_service)
+add_test(NAME MessageServiceTests COMMAND test_message_service)
 add_test(NAME ApiTests COMMAND api_tests)
 
 
