@@ -1,6 +1,6 @@
 #pragma once
 
-#include "message_service.hpp"
+#include "xpp/modules/message/message_service.hpp"
 #include "xpp/network/http_server.hpp"
 #include "xpp/modules/user/auth_service.hpp"
 #include "xpp/core/logger.hpp"

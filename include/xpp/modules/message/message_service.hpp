@@ -1,6 +1,6 @@
 #pragma once
 
-#include "message_model.hpp"
+#include "xpp/modules/message/message_model.hpp"
 #include "xpp/infrastructure/database_pool.hpp"
 #include "xpp/core/logger.hpp"
 #include <optional>
